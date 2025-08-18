@@ -4,6 +4,7 @@ namespace App\Services\DatoCms;
 
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class DatoCmsClient
@@ -34,21 +35,25 @@ class DatoCmsClient
         $cacheKey = md5($query . json_encode($variables));
         $cachedResult = Cache::get($cacheKey);
         if ($cachedResult) {
+            Log::info('🔽 Returning cached result for query', ['cacheKey' => $cacheKey]);
             return $cachedResult;
         }
 
         // 2. not cached, execute the query
+        Log::info('⚡️ Executing DatoCMS query', ['query' => $query, 'cacheKey' => $cacheKey]);
         $result = $this->executeQuery($query, $variables);
 
         // 3. cache tag1 -> cacheKey, tag2 -> cacheKey, ...
         // in webhook we'll be invalidating cache by tags
         $cacheTags = $result['cacheTags'];
         foreach ($cacheTags as $tag) {
+            Log::info('🏷️ Caching tag', ['tag' => $tag, 'cacheKey' => $cacheKey]);
             Cache::put($tag, $cacheKey);
         }
         unset($result['cacheTags']);
 
         // 4. cache cacheKey -> result
+        Log::info('🔼 Caching result for query', ['cacheKey' => $cacheKey]);
         Cache::put($cacheKey, $result);
 
         // 4. return the result
