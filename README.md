@@ -1,61 +1,72 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+## DatoCMS Integration
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+This Laravel application integrates with DatoCMS using a sophisticated caching strategy that leverages DatoCMS's native cache tags for optimal performance and cache invalidation.
 
-## About Laravel
+### Caching Strategy
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+The `DatoCmsClient` implements a tag-based caching system that works with DatoCMS's Content Delivery API (CDA) cache tags:
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+#### How It Works
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+1. **Query Execution**: When a GraphQL query is executed, the client requests cache tags from DatoCMS by setting the `X-Cache-Tags: true` header.
 
-## Learning Laravel
+2. **Cache Tag Mapping**: DatoCMS responds with cache tags in the `X-Cache-Tags` header (e.g., `#)[br) "s3n:@`). These tags represent the specific content that the query depends on.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+3. **Dual Caching Strategy**:
+   - **Query Cache**: The actual query result is cached with a unique key based on the query and variables
+   - **Tag Mapping**: Each cache tag is mapped to the query cache key, enabling efficient invalidation
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+4. **Cache Invalidation**: When content changes in DatoCMS, webhooks notify our application which cache tags to invalidate, ensuring fresh content delivery.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+#### Code Example
 
-## Laravel Sponsors
+```php
+// Execute a query that will be cached with DatoCMS tags
+$result = $datoCmsClient->query('
+    query {
+        allPosts {
+            id
+            title
+            content
+        }
+    }
+');
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+// DatoCMS automatically provides cache tags like: #)[br), "s3n:@
+// These are used to invalidate cache when those specific posts change
+```
 
-### Premium Partners
+#### Cache Flow Diagram
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+```
+1. Client Query → DatoCMS API (with X-Cache-Tags: true)
+2. DatoCMS Response → Data + Cache Tags (X-Cache-Tags: xxx yyy)
+3. Laravel Cache →
+   - Store: query_hash → result_data
+   - Store: xxx → query_hash
+   - Store: yyy → query_hash
+4. Webhook Invalidation →
+   - DatoCMS sends: {"tags": ["xxx"]}
+   - Laravel removes: xxx mapping + associated query cache
+```
 
-## Contributing
+### Benefits
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+- **Precision**: Only invalidates cache for content that actually changed
+- **Performance**: Avoids unnecessary API calls for unchanged content
+- **Scalability**: Efficient cache management even with large datasets
+- **Real-time**: Immediate cache invalidation via webhooks
 
-## Code of Conduct
+### Configuration
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Set up your DatoCMS integration in `.env`:
 
-## Security Vulnerabilities
+```env
+DATOCMS_API_TOKEN=your_api_token_here
+DATOCMS_WEBHOOK_SECRET=your_webhook_secret
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+The webhook endpoint for cache invalidation is available at:
+```
+POST /webhooks/datocms/cache-invalidation
+```

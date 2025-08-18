@@ -13,9 +13,6 @@ class DatoCmsClient
 
     public function __construct(
         private readonly string $apiToken,
-        private readonly ?string $environment = null,
-        private readonly bool $preview = false,
-        private readonly ?int $cacheDuration = 3600
     ) {
         $this->client = new Client([
             'base_uri' => self::API_BASE_URL,
@@ -33,28 +30,36 @@ class DatoCmsClient
             throw new RuntimeException('DatoCMS API token is not configured.');
         }
 
-        $cacheKey = $this->getCacheKey($query, $variables);
-
-        if ($this->cacheDuration !== null) {
-            return Cache::remember($cacheKey, $this->cacheDuration, function () use ($query, $variables) {
-                return $this->executeQuery($query, $variables);
-            });
+        // 1. check if the query is cached
+        $cacheKey = md5($query . json_encode($variables));
+        $cachedResult = Cache::get($cacheKey);
+        if ($cachedResult) {
+            return $cachedResult;
         }
 
-        return $this->executeQuery($query, $variables);
+        // 2. not cached, execute the query
+        $result = $this->executeQuery($query, $variables);
+
+        // 3. cache tag1 -> cacheKey, tag2 -> cacheKey, ...
+        // in webhook we'll be invalidating cache by tags
+        $cacheTags = $result['cacheTags'];
+        foreach ($cacheTags as $tag) {
+            Cache::put($tag, $cacheKey);
+        }
+        unset($result['cacheTags']);
+
+        // 4. cache cacheKey -> result
+        Cache::put($cacheKey, $result);
+
+        // 4. return the result
+        return $result;
     }
 
     private function executeQuery(string $query, array $variables): array
     {
-        $headers = [];
-
-        if ($this->environment) {
-            $headers['X-Environment'] = $this->environment;
-        }
-
-        if ($this->preview) {
-            $headers['X-Include-Drafts'] = 'true';
-        }
+        $headers = [
+          'X-Cache-Tags' => 'true',
+        ];
 
         $response = $this->client->post('', [
             'headers' => $headers,
@@ -72,11 +77,10 @@ class DatoCmsClient
             );
         }
 
-        return $data['data'] ?? [];
-    }
+        $result = $data['data'] ?? [];
 
-    private function getCacheKey(string $query, array $variables): string
-    {
-        return 'datocms_' . md5($query . json_encode($variables) . $this->environment . $this->preview);
+        $result['cacheTags'] = array_filter(explode(' ', implode($response->getHeader('X-Cache-Tags'))), 'strlen');
+
+        return $result;
     }
 }

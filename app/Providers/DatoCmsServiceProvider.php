@@ -16,9 +16,6 @@ class DatoCmsServiceProvider extends ServiceProvider
         $this->app->singleton(DatoCmsClient::class, function ($app) {
             return new DatoCmsClient(
                 config('datocms.api_token'),
-                config('datocms.environment'),
-                config('datocms.preview'),
-                config('datocms.cache_duration')
             );
         });
     }

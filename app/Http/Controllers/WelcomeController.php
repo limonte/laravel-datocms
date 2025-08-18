@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\DatoCms\DatoCmsClient;
 use Illuminate\Support\Arr;
 
-class YourController
+class WelcomeController
 {
     public function __construct(private DatoCmsClient $datoCms) {}
 
